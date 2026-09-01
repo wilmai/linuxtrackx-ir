@@ -421,13 +421,20 @@ if(MXML_FOUND)
     target_include_directories(ltr_extractor PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/native_extractor
         ${CMAKE_CURRENT_SOURCE_DIR}/native_extractor/third_party/libmspack
+        ${MXML_INCLUDE_DIRS}
     )
+
+    target_link_directories(ltr_extractor PRIVATE ${MXML_LIBRARY_DIRS})
+    target_compile_options(ltr_extractor PRIVATE ${MXML_CFLAGS_OTHER})
 
     target_compile_definitions(ltr_extractor PRIVATE
         _FILE_OFFSET_BITS=64
         _POSIX_C_SOURCE=200809L
         HAVE_FSEEKO=1
     )
+    if(APPLE)
+        target_compile_definitions(ltr_extractor PRIVATE _DARWIN_C_SOURCE)
+    endif()
 
     target_link_libraries(ltr_extractor
         linuxtrack

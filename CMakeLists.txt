@@ -142,9 +142,10 @@ include(CheckCSourceCompiles)
 # Required libraries via pkg-config
 pkg_check_modules(ZLIB REQUIRED zlib)
 if(APPLE)
-    # Mini-XML is used only by the game-data portion of ltr_extractor.  It is
-    # unrelated to libtir, ltr_server1, or the native IOUSBHost backend.
-    pkg_check_modules(MXML mxml)
+    pkg_check_modules(MXML mxml4)
+    if(NOT MXML_FOUND)
+        pkg_check_modules(MXML mxml)
+    endif()
     if(NOT MXML_FOUND)
         message(STATUS "Mini-XML not found; ltr_extractor will not be built")
     endif()
