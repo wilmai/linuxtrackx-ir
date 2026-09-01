@@ -87,10 +87,9 @@ liblinuxtrack C API -> native macOS applications
 
 The macOS transport is a normal host process using the `IOUSBHost` framework.
 `IOUSBHostInterface` matches TIR5V3 (`0x0159`) or TIR5V2 (`0x0158`), with v3
-preferred, establishes ownership,
-retrieves descriptors, creates pipes, and performs control/bulk I/O. The
-checked-in [`TrackIRUserSpaceProbe`](macos/TrackIRUserSpace/README.md) validates
-these operations before the protocol engine is connected.
+preferred, establishes ownership, retrieves descriptors, creates pipes, and
+performs control/bulk I/O. The production `ltr_server1` path now exercises
+these operations before handing the device to the shared protocol engine.
 
 The default `IOUSBHostObjectInitOptionsNone` mode requests ordinary exclusive
 ownership. `--seize` asks an existing owner to close voluntarily. The
@@ -179,25 +178,19 @@ The native extractor should be made a supported macOS build target once the
 host configuration path is defined. Extraction must remain independent of the
 USB transport and must not execute the TrackIR installer.
 
-## macOS project and build layout
+## macOS source and build layout
 
-Use a dedicated `macos/` project for the IOUSBHost userspace probe and future
-macOS transport tests:
+The production macOS implementation lives under `macos/` and is compiled by
+the top-level CMake build:
 
 ```text
 macos/
-  LinuxTrackXIR.xcodeproj/    IOUSBHost probe target
-  TrackIRUserSpace/           probe source and USB identity definitions
+  TrackIRUserSpace/           IOUSBHost backend and transport
 ```
 
-The Xcode project contains one `TrackIRUserSpaceProbe` command-line target and
-links `Foundation`, `IOKit`, and `IOUSBHost`. The standalone command-line
-build in [`macos/TrackIRUserSpace/README.md`](macos/TrackIRUserSpace/README.md)
-is the reference build until the main CMake port is ready.
-
-The existing top-level CMake project should gain a macOS host configuration
-only after the standalone userspace bring-up succeeds. The first CMake port
-should:
+The former standalone userspace probe was a bring-up utility and has been
+removed now that the Qt/server path uses the production transport. The CMake
+macOS configuration:
 
 - remove Linux-only sources from macOS targets;
 - replace hard-coded `dl`, `pthread`, and compiler flags with portable CMake

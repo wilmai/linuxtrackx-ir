@@ -38,14 +38,7 @@ option(DISABLE_WIIMOTE "Force-disable Wiimote even if libcwiid is found" OFF)
 option(ENABLE_XPLANE "Enable X-Plane plugin" OFF)
 option(ENABLE_FACE_TRACKER "Enable face tracker (requires OpenCV and webcam support)" OFF)
 
-set(_enable_gui_default ON)
-if(APPLE)
-    # The first native macOS target is the IOUSBHost-backed server.  The
-    # existing Qt GUI remains opt-in until its macOS-specific dependencies are
-    # ported.
-    set(_enable_gui_default OFF)
-endif()
-option(ENABLE_GUI "Build the Qt GUI" ${_enable_gui_default})
+option(ENABLE_GUI "Build the Qt GUI" ON)
 
 # Path options
 set(XPLANE_SDK_PATH "/opt/xplane-sdk/CHeaders" CACHE PATH "Path to X-Plane SDK")
