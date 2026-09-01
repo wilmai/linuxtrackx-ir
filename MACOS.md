@@ -1,7 +1,8 @@
 # macOS TrackIR support plan
 
 Status: IOUSBHost userspace capture, pipe creation, and bounded control/bulk
-transfers validated against the attached TIR5V2
+transfers validated against the attached TIR5V2. TIR5V3 matching and the
+existing LinuxTrack protocol path are implemented but hardware-unverified.
 
 This document defines the plan for native macOS support in LinuxTrack X-IR.
 The macOS implementation uses Apple’s `IOUSBHost` framework from a normal
@@ -85,7 +86,8 @@ liblinuxtrack C API -> native macOS applications
 ## IOUSBHost userspace transport
 
 The macOS transport is a normal host process using the `IOUSBHost` framework.
-`IOUSBHostInterface` matches the TIR5V2 interface, establishes ownership,
+`IOUSBHostInterface` matches TIR5V3 (`0x0159`) or TIR5V2 (`0x0158`), with v3
+preferred, establishes ownership,
 retrieves descriptors, creates pipes, and performs control/bulk I/O. The
 checked-in [`TrackIRUserSpaceProbe`](macos/TrackIRUserSpace/README.md) validates
 these operations before the protocol engine is connected.
@@ -139,9 +141,11 @@ values, and device state before issuing each operation. Avoid an unrestricted
 
 ### Device matching
 
-Start with TIR5V2 (`0x131D:0x0158`) and add TIR5V3 (`0x131D:0x0159`) after
-TIR5V2 is stable. Match the interface and configuration as well as the device
-identity so that unrelated interfaces cannot be claimed.
+The macOS backend matches TIR5V3 (`0x131D:0x0159`) first and then TIR5V2
+(`0x131D:0x0158`). It matches the interface and configuration as well as the
+device identity so that unrelated interfaces cannot be claimed. The shared
+protocol layer selects the existing LinuxTrack TIR5V3 implementation once
+the backend reports the v3 product.
 
 Capture and record, for each model:
 
@@ -247,7 +251,7 @@ rate, and pose values before GUI integration begins.
 - [x] Confirm the observed TIR5V2 product ID and interface identity.
 - [x] Capture the TIR5V2 descriptor and endpoint map from the connected device.
 - [ ] Capture LinuxTrack USB traces for protocol comparison.
-- [ ] Confirm the TIR5V3 product ID and descriptors.
+- [x] Add TIR5V3 product-ID matching; descriptors remain to be confirmed.
 - [ ] Decide the normal-app distribution/signing model.
 
 ### Phase 1: isolate the portable protocol
@@ -307,7 +311,8 @@ rate, and pose values before GUI integration begins.
 
 ### Phase 6: TIR5V3 and release hardening
 
-- [ ] Add `0x131D:0x0159` after TIR5V2 passes the acceptance tests.
+- [x] Add `0x131D:0x0159` matching and route it to the existing LinuxTrack
+  TIR5V3 protocol implementation.
 - [ ] Compare v2/v3 descriptors, initialization packets, firmware behavior,
   and frame formats.
 - [ ] Add only verified model-specific differences.
@@ -352,8 +357,8 @@ true:
 
 ## Initial implementation decision
 
-The macOS implementation is a narrow TIR5V2 IOUSBHost transport plus a small
-diagnostic host. It should reuse the existing TrackIR protocol engine, keep
-all vendor-independent USB logic in the new platform abstraction, and delay
-GUI, TIR5V3, and packaging polish until real TIR5V2 frames are flowing on
-macOS.
+The macOS implementation is an IOUSBHost transport for TIR5V2 and TIR5V3 plus
+a small diagnostic host. It reuses the existing TrackIR protocol engine,
+including the LinuxTrack TIR5V3 command and frame paths. TIR5V3 operation,
+descriptor compatibility, and sustained frames remain explicitly unverified
+until hardware is available.

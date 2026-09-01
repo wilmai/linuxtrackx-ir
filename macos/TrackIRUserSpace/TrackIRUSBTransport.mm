@@ -93,7 +93,7 @@ static void set_transport_error(NSError **error, IOReturn code,
   }
 
   if (deviceDescriptor->idVendor != TRACKIR_USB_VENDOR_ID ||
-      deviceDescriptor->idProduct != TRACKIR_USB_PRODUCT_ID ||
+      !TRACKIR_USB_IS_SUPPORTED_PRODUCT_ID(deviceDescriptor->idProduct) ||
       configurationDescriptor->bConfigurationValue !=
           TRACKIR_USB_CONFIGURATION_VALUE ||
       interfaceDescriptor->bInterfaceNumber != TRACKIR_USB_INTERFACE_NUMBER ||

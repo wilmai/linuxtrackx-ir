@@ -1,10 +1,10 @@
 # IOUSBHost userspace probe
 
 This command-line tool uses Apple’s `IOUSBHost` framework from a normal macOS
-process to match and open the TIR5V2 interface, read its descriptors, create
-endpoint pipes, and optionally exercise the first bounded transfers.
+process to match and open a TIR5V2 or TIR5V3 interface, read its descriptors,
+create endpoint pipes, and optionally exercise the first bounded transfers.
 
-Build and run it on macOS with a connected TIR5V2:
+Build and run it on macOS with a connected TrackIR 5 device:
 
 ```sh
 MACOS_SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
@@ -27,23 +27,23 @@ terminates existing clients and drivers and requires root privileges or the
 sudo /tmp/linuxtrackx-ir-iousbhost-probe --capture
 ```
 
-Add `--exercise` to issue a standard 18-byte device-descriptor control read,
-send the TIR5V2 stop/LED-off preamble used by LinuxTrack, drain pending bulk
-IN data, send the existing configuration request (`0x17`), then send the
-status request (`0x1d`) to the discovered bulk OUT pipe. Each bulk IN read is
-limited to 64 bytes with a 500 ms timeout; empty or unrelated packets are
-discarded within a small retry budget:
+Add `--exercise` to issue a standard 18-byte device-descriptor control read.
+For TIR5V2 it then sends the stop/LED-off preamble used by LinuxTrack, drains
+pending bulk IN data, sends the existing configuration request (`0x17`), and
+sends the status request (`0x1d`) to the discovered bulk OUT pipe. Each bulk
+IN read is limited to 64 bytes with a 500 ms timeout; empty or unrelated
+packets are discarded within a small retry budget:
 
 ```sh
 sudo /tmp/linuxtrackx-ir-iousbhost-probe --capture --exercise
 ```
 
-The diagnostic does not load firmware or start the camera. It does turn the
-camera and its LEDs off first, so use `--capture` for a controlled run. It
-expects the configuration response to have the existing `40` packet marker
-and the status response to have the header used by the TrackIR status parser
-(`07 20`). It prints the complete bounded responses for comparison with
-captured protocol data.
+The diagnostic does not load firmware or start the camera. The TIR5V2
+exercise turns the camera and its LEDs off first, so use `--capture` for a
+controlled run. TIR5V3 commands are randomized 24-byte packets, so the probe
+only performs the descriptor/control check for v3 and leaves the full
+protocol exercise to the shared LinuxTrack driver. It prints the complete
+bounded responses for comparison with captured protocol data.
 
 The default `IOUSBHostObjectInitOptionsNone` path is suitable for an
 unsandboxed local development tool. A sandboxed application still needs

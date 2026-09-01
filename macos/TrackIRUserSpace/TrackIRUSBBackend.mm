@@ -26,6 +26,34 @@ static bool usb_initialized = false;
  * bounded to the same size rather than accepting arbitrary allocations from
  * a dynamically loaded caller. */
 static const size_t kMaxBulkTransferSize = 16u * 1024u;
+static const uint16_t kTrackIRProductIDs[] = {
+  TRACKIR_USB_TIR5V3_PRODUCT_ID,
+  TRACKIR_USB_TIR5V2_PRODUCT_ID,
+};
+
+static dev_found model_for_product_id(uint16_t product_id)
+{
+  switch (product_id) {
+    case TRACKIR_USB_TIR5V2_PRODUCT_ID:
+      return TIR5V2;
+    case TRACKIR_USB_TIR5V3_PRODUCT_ID:
+      return TIR5V3;
+    default:
+      return NOT_TIR;
+  }
+}
+
+static const char *model_name(dev_found model)
+{
+  switch (model) {
+    case TIR5V2:
+      return "TIR5V2";
+    case TIR5V3:
+      return "TIR5V3";
+    default:
+      return "unknown TrackIR model";
+  }
+}
 
 static void log_error(const char *operation, NSError *error)
 {
@@ -63,11 +91,11 @@ static const char *init_options_name(IOUSBHostObjectInitOptions options)
   return "ordinary ownership";
 }
 
-static CFMutableDictionaryRef create_matching_dictionary(void)
+static CFMutableDictionaryRef create_matching_dictionary(uint16_t product_id)
 {
   return [IOUSBHostInterface
       createMatchingDictionaryWithVendorID:@(TRACKIR_USB_VENDOR_ID)
-                                 productID:@(TRACKIR_USB_PRODUCT_ID)
+                                 productID:@(product_id)
                                   bcdDevice:nil
                             interfaceNumber:@(TRACKIR_USB_INTERFACE_NUMBER)
                          configurationValue:@(TRACKIR_USB_CONFIGURATION_VALUE)
@@ -79,6 +107,7 @@ static CFMutableDictionaryRef create_matching_dictionary(void)
 }
 
 static bool open_matching_interface(IOUSBHostObjectInitOptions options,
+                                    uint16_t product_id,
                                     bool *saw_service, bool *access_error)
 {
   if (saw_service != nullptr) {
@@ -88,7 +117,7 @@ static bool open_matching_interface(IOUSBHostObjectInitOptions options,
     *access_error = false;
   }
 
-  CFMutableDictionaryRef matching = create_matching_dictionary();
+  CFMutableDictionaryRef matching = create_matching_dictionary(product_id);
   if (matching == nullptr) {
     ltr_int_log_message("Could not create the IOUSBHost matching dictionary.\n");
     return false;
@@ -103,7 +132,9 @@ static bool open_matching_interface(IOUSBHostObjectInitOptions options,
     return false;
   }
 
-  ltr_int_log_message("Trying IOUSBHost %s.\n", init_options_name(options));
+  ltr_int_log_message("Trying IOUSBHost %s for %04x:%04x.\n",
+                      init_options_name(options), TRACKIR_USB_VENDOR_ID,
+                      product_id);
   io_service_t service = IO_OBJECT_NULL;
   while ((service = IOIteratorNext(iterator)) != IO_OBJECT_NULL) {
     if (saw_service != nullptr) {
@@ -138,6 +169,58 @@ static bool open_matching_interface(IOUSBHostObjectInitOptions options,
   }
 
   IOObjectRelease(iterator);
+  return false;
+}
+
+/* LinuxTrack prefers the newest TrackIR 5 revision. Keep that ordering on
+ * macOS, and do not silently fall back to an older device when a higher
+ * priority matching interface is present but cannot be opened. This preserves
+ * a useful permission error for the device the caller actually needs. */
+static bool open_preferred_matching_interface(
+    IOUSBHostObjectInitOptions options, dev_found *model, bool *saw_service,
+    bool *access_error)
+{
+  if (model != nullptr) {
+    *model = NOT_TIR;
+  }
+  if (saw_service != nullptr) {
+    *saw_service = false;
+  }
+  if (access_error != nullptr) {
+    *access_error = false;
+  }
+
+  for (uint16_t product_id : kTrackIRProductIDs) {
+    bool product_saw_service = false;
+    bool product_access_error = false;
+    if (open_matching_interface(options, product_id, &product_saw_service,
+                                &product_access_error)) {
+      if (model != nullptr) {
+        *model = model_for_product_id(trackir_transport.productID);
+      }
+      if (saw_service != nullptr) {
+        *saw_service = true;
+      }
+      if (access_error != nullptr) {
+        *access_error = product_access_error;
+      }
+      return true;
+    }
+
+    if (saw_service != nullptr) {
+      *saw_service = *saw_service || product_saw_service;
+    }
+    if (access_error != nullptr) {
+      *access_error = *access_error || product_access_error;
+    }
+
+    if (product_saw_service) {
+      if (model != nullptr) {
+        *model = model_for_product_id(product_id);
+      }
+      return false;
+    }
+  }
   return false;
 }
 
@@ -207,41 +290,61 @@ dev_found ltr_int_find_tir(void)
     }
 
     if (trackir_transport != nil && trackir_transport.open) {
-      ltr_int_log_message("Reusing the open IOUSBHost TrackIR interface.\n");
-      return TIR5V2;
+      dev_found model = model_for_product_id(trackir_transport.productID);
+      if (model != NOT_TIR) {
+        ltr_int_log_message(
+            "Reusing the open IOUSBHost %s interface.\n", model_name(model));
+        return model;
+      }
+      ltr_int_log_message(
+          "The open IOUSBHost interface has an unsupported TrackIR product "
+          "ID: %04x.\n", trackir_transport.productID);
+      return NOT_TIR;
     }
 
+    dev_found model = NOT_TIR;
     bool saw_service = false;
     bool access_denied = false;
-    if (open_matching_interface(IOUSBHostObjectInitOptionsNone, &saw_service,
-                                &access_denied)) {
-      return TIR5V2;
+    if (open_preferred_matching_interface(IOUSBHostObjectInitOptionsNone,
+                                          &model, &saw_service,
+                                          &access_denied)) {
+      return model;
     }
 
     if (!saw_service) {
-      ltr_int_log_message("No TIR5V2 IOUSBHost interface was found.\n");
+      ltr_int_log_message(
+          "No supported TrackIR 5 IOUSBHost interface was found "
+          "(TIR5V3/TIR5V2).\n");
       return NOT_TIR;
     }
 
     ltr_int_log_message(
-        "Ordinary IOUSBHost ownership failed%s; retrying with DeviceCapture.\n",
+        "Ordinary IOUSBHost ownership failed for %s%s; retrying with "
+        "DeviceCapture.\n",
+        model_name(model),
         access_denied ? " because the interface is already owned or not permitted"
                       : "");
-    if (open_matching_interface(IOUSBHostObjectInitOptionsDeviceCapture,
-                                nullptr, nullptr)) {
-      return TIR5V2;
+    dev_found capture_model = NOT_TIR;
+    if (open_preferred_matching_interface(
+            IOUSBHostObjectInitOptionsDeviceCapture, &capture_model, nullptr,
+            nullptr)) {
+      return capture_model;
+    }
+    if (model == NOT_TIR) {
+      model = capture_model;
     }
 
     if (geteuid() != 0) {
       ltr_int_log_message(
-          "IOUSBHost DeviceCapture could not be authorized. Quit and run "
-          "'sudo ltr_server1' if the device is still owned by another client.\n");
-      return (dev_found)(TIR5V2 | NOT_PERMITTED);
+          "IOUSBHost DeviceCapture for %s could not be authorized. Quit and "
+          "run 'sudo ltr_server1' if the device is still owned by another "
+          "client.\n", model_name(model));
+      return model == NOT_TIR ? NOT_TIR : (dev_found)(model | NOT_PERMITTED);
     }
 
     ltr_int_log_message(
-        "IOUSBHost DeviceCapture failed even with root; check the device and "
-        "its current USB owner.\n");
+        "IOUSBHost DeviceCapture for %s failed even with root; check the "
+        "device and its current USB owner.\n", model_name(model));
     return NOT_TIR;
   }
 }

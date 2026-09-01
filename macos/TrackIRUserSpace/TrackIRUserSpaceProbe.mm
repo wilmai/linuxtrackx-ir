@@ -4,11 +4,44 @@
 #include <mach/mach.h>
 
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "TrackIRUSB.h"
 #include "TrackIRUSBTransport.h"
+
+static const uint16_t kTrackIRProductIDs[] = {
+  TRACKIR_USB_TIR5V3_PRODUCT_ID,
+  TRACKIR_USB_TIR5V2_PRODUCT_ID,
+};
+
+static const char *model_name_for_product_id(uint16_t product_id)
+{
+  switch (product_id) {
+    case TRACKIR_USB_TIR5V2_PRODUCT_ID:
+      return "TIR5V2";
+    case TRACKIR_USB_TIR5V3_PRODUCT_ID:
+      return "TIR5V3";
+    default:
+      return "unknown TrackIR model";
+  }
+}
+
+static CFMutableDictionaryRef create_matching_dictionary(uint16_t product_id)
+{
+  return [IOUSBHostInterface
+      createMatchingDictionaryWithVendorID:@(TRACKIR_USB_VENDOR_ID)
+                                 productID:@(product_id)
+                                  bcdDevice:nil
+                            interfaceNumber:@(TRACKIR_USB_INTERFACE_NUMBER)
+                         configurationValue:@(TRACKIR_USB_CONFIGURATION_VALUE)
+                            interfaceClass:nil
+                         interfaceSubclass:nil
+                         interfaceProtocol:nil
+                                      speed:nil
+                             productIDArray:nil];
+}
 
 static void print_usage(const char *program)
 {
@@ -71,7 +104,7 @@ static bool exercise_control_request(TrackIRUSBTransport *transport)
          (unsigned long)bytesTransferred, descriptor.idVendor,
          descriptor.idProduct);
   if (descriptor.idVendor != TRACKIR_USB_VENDOR_ID ||
-      descriptor.idProduct != TRACKIR_USB_PRODUCT_ID) {
+      !TRACKIR_USB_IS_SUPPORTED_PRODUCT_ID(descriptor.idProduct)) {
     fprintf(stderr, "GET_DESCRIPTOR returned an unexpected device identity\n");
     return false;
   }
@@ -303,75 +336,96 @@ static bool print_transport(TrackIRUSBTransport *transport, bool exercise)
   if (!exercise_control_request(transport)) {
     return false;
   }
+  if (transport.productID == TRACKIR_USB_TIR5V3_PRODUCT_ID) {
+    /*
+     * The v3 Linux driver obfuscates every command into a randomized
+     * 24-byte packet. Do not send the v2 raw command sequence here; the
+     * production libtir path already contains the v3 implementation.
+     */
+    fprintf(stderr,
+            "TIR5V3 descriptor/control check complete; skipping the raw "
+            "TIR5V2 bulk exercise.\n");
+    return true;
+  }
   return exercise_bulk_transfers(transport);
 }
 
 static int probe(IOUSBHostObjectInitOptions options, bool exercise)
 {
-  CFMutableDictionaryRef matching =
-      [IOUSBHostInterface createMatchingDictionaryWithVendorID:
-                                      @(TRACKIR_USB_VENDOR_ID)
-                                      productID:@(TRACKIR_USB_PRODUCT_ID)
-                                      bcdDevice:nil
-                                      interfaceNumber:@(
-                                          TRACKIR_USB_INTERFACE_NUMBER)
-                                      configurationValue:@(
-                                          TRACKIR_USB_CONFIGURATION_VALUE)
-                                      interfaceClass:nil
-                                      interfaceSubclass:nil
-                                      interfaceProtocol:nil
-                                      speed:nil
-                                      productIDArray:nil];
-  if (matching == nullptr) {
-    fprintf(stderr, "TrackIR: unable to create IOUSBHost matching dictionary\n");
-    return 1;
-  }
-
-  io_iterator_t iterator = IO_OBJECT_NULL;
-  kern_return_t ret = IOServiceGetMatchingServices(MACH_PORT_NULL, matching,
-                                                     &iterator);
-  if (ret != kIOReturnSuccess) {
-    fprintf(stderr, "TrackIR: IOServiceGetMatchingServices failed: 0x%08x\n",
-            (unsigned int)ret);
-    return 1;
-  }
-
-  io_service_t service = IO_OBJECT_NULL;
   bool matched = false;
   bool opened = false;
   int result = 1;
-  while ((service = IOIteratorNext(iterator)) != IO_OBJECT_NULL) {
-    matched = true;
-    NSError *error = nil;
-    TrackIRUSBTransport *transport =
-        [[TrackIRUSBTransport alloc] initWithIOService:service
-                                               options:options
-                                                 error:&error];
-    IOObjectRelease(service);
-    service = IO_OBJECT_NULL;
+  uint16_t matched_product_id = 0;
+  uint16_t opened_product_id = 0;
 
-    if (transport == nil) {
-      print_error("init TrackIRUSBTransport", error);
-      continue;
+  for (uint16_t product_id : kTrackIRProductIDs) {
+    CFMutableDictionaryRef matching = create_matching_dictionary(product_id);
+    if (matching == nullptr) {
+      fprintf(stderr, "TrackIR: unable to create IOUSBHost matching dictionary "
+                      "for %04x:%04x\n",
+              TRACKIR_USB_VENDOR_ID, product_id);
+      return 1;
     }
 
-    opened = true;
-    result = print_transport(transport, exercise) ? 0 : 1;
-    [transport destroy];
-    break;
+    io_iterator_t iterator = IO_OBJECT_NULL;
+    kern_return_t ret = IOServiceGetMatchingServices(MACH_PORT_NULL, matching,
+                                                       &iterator);
+    if (ret != kIOReturnSuccess) {
+      fprintf(stderr,
+              "TrackIR: IOServiceGetMatchingServices failed for %04x:%04x: "
+              "0x%08x\n",
+              TRACKIR_USB_VENDOR_ID, product_id, (unsigned int)ret);
+      return 1;
+    }
+
+    io_service_t service = IO_OBJECT_NULL;
+    while ((service = IOIteratorNext(iterator)) != IO_OBJECT_NULL) {
+      matched = true;
+      matched_product_id = product_id;
+      NSError *error = nil;
+      TrackIRUSBTransport *transport =
+          [[TrackIRUSBTransport alloc] initWithIOService:service
+                                                 options:options
+                                                   error:&error];
+      IOObjectRelease(service);
+      service = IO_OBJECT_NULL;
+
+      if (transport == nil) {
+        print_error("init TrackIRUSBTransport", error);
+        continue;
+      }
+
+      opened = true;
+      opened_product_id = transport.productID;
+      result = print_transport(transport, exercise) ? 0 : 1;
+      [transport destroy];
+      break;
+    }
+
+    if (service != IO_OBJECT_NULL) {
+      IOObjectRelease(service);
+    }
+    IOObjectRelease(iterator);
+
+    /*
+     * Match the backend's priority rule: once a v3 interface is present, do
+     * not hide its ownership/descriptor error by selecting a v2 device.
+     */
+    if (matched) {
+      break;
+    }
   }
 
-  if (service != IO_OBJECT_NULL) {
-    IOObjectRelease(service);
-  }
-  IOObjectRelease(iterator);
   if (!matched) {
-    fprintf(stderr, "TrackIR: no matching TIR5V2 interface is currently connected\n");
+    fprintf(stderr, "TrackIR: no matching TIR device interface\n");
   } else if (!opened) {
     fprintf(stderr,
-            "TrackIR: no usable TIR5V2 interface found (another driver may own it)\n");
+            "TrackIR: no usable %s interface found (another driver may own "
+            "it)\n",
+            model_name_for_product_id(matched_product_id));
   } else if (result != 0) {
-    fprintf(stderr, "TrackIR: TIR5V2 interface opened, but the diagnostic failed\n");
+    fprintf(stderr, "TrackIR: %s interface opened, but the diagnostic failed\n",
+            model_name_for_product_id(opened_product_id));
   }
   return result;
 }
