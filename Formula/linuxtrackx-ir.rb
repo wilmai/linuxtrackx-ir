@@ -1,9 +1,9 @@
-class LinuxtrackXIr < Formula
+class LinuxtrackxIr < Formula
   desc "Head-tracking client and TrackIR driver for macOS"
   homepage "https://github.com/wilmai/linuxtrackx-ir"
   url "https://github.com/wilmai/linuxtrackx-ir.git",
       using: :git,
-      revision: "e92345481509fa825ddc42c119b854d9fe636b8d"
+      revision: "be9d7e52aabf22ca3ff301d3e41aad6fd0fc9e7c"
   version "2.2.0"
   license "MIT"
   revision 1
