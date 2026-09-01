@@ -64,3 +64,30 @@ configuration response and the 7-byte status response
 TIR5V3 matching and the existing LinuxTrack protocol path are implemented,
 but TIR5V3 descriptor, initialization, and frame behavior remain unverified
 until hardware is available.
+
+## Install with Homebrew
+
+The repository includes a Homebrew formula at
+`Formula/linuxtrackx-ir.rb`. It builds the native macOS Qt GUI, the
+IOUSBHost-backed `ltr_server1`, the LinuxTrack libraries, and the command-line
+helpers directly into Homebrew's prefix. No `.app` bundle or code-signing
+identity is required.
+
+Because this source repository is not named `homebrew-*`, add it as a tap with
+its explicit Git URL:
+
+```sh
+brew tap wilmai/linuxtrackx-ir https://github.com/wilmai/linuxtrackx-ir.git
+brew install wilmai/linuxtrackx-ir/linuxtrackx-ir
+```
+
+The formula pins normal installs to the current `mac` revision. To build the
+latest commit from that branch instead, use:
+
+```sh
+brew install --HEAD wilmai/linuxtrackx-ir/linuxtrackx-ir
+```
+
+After installation, run `ltr_gui` for the GUI or `ltr_server1` for the
+background tracking server. If IOUSBHost needs `DeviceCapture`, run the server
+with `sudo` as described above.
