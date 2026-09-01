@@ -39,8 +39,8 @@ typedef void (ltr_usb_finish_fn)(void *context, unsigned int interface_number);
 
 /*
  * Platform-neutral transport contract used by the TrackIR protocol engine.
- * The context is owned by the backend.  DriverKit and libusb implementations
- * can therefore keep their handles private without exposing them to tir_hw.
+ * The context is owned by the backend. Platform-specific implementations can
+ * therefore keep their handles private without exposing them to tir_hw.
  */
 typedef struct {
   uint32_t abi_version;

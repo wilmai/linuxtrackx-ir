@@ -1209,8 +1209,13 @@ bool ltr_int_open_tir(bool force_fw_load, bool switch_ir_on)
     ltr_int_log_message("Init failed!\n");
     return false;
   }
-  if((device = ltr_int_find_tir()) == NOT_TIR){
+  device = ltr_int_find_tir();
+  if(device == NOT_TIR){
     ltr_int_log_message("Tir not found!\n");
+    return false;
+  }
+  if((device & NOT_PERMITTED) != 0){
+    ltr_int_log_message("TrackIR was found, but IO access was not permitted.\n");
     return false;
   }
 
@@ -2077,4 +2082,3 @@ static tir_interface tir5v3 = {
   .get_tir_info = get_tir5v3_info,            //x
   .set_status_led_tir = set_status_led_tir5v3 //x
 };
-

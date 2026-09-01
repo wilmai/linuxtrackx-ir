@@ -59,6 +59,21 @@ static void unbind_tir_usb_transport(void)
   memset(&legacy_usb_api, 0, sizeof(legacy_usb_api));
 }
 
+static void cleanup_tir_usb_backend(void)
+{
+  /* If discovery or protocol setup fails after the backend has opened an
+   * interface, release it before libtir is unloaded.  This is especially
+   * important for IOUSBHost DeviceCapture, whose ownership otherwise survives
+   * the failed initialization attempt. */
+  if(libhandle == NULL){
+    return;
+  }
+  ltr_usb_transport_finish(&tir_usb_transport, (unsigned int)-1);
+  ltr_int_unload_library(libhandle, functions);
+  unbind_tir_usb_transport();
+  libhandle = NULL;
+}
+
 void flag_pref_changed(void *flag_ptr)
 {
   *(bool*)flag_ptr = true;
@@ -86,6 +101,7 @@ int ltr_int_tracker_init(struct camera_control_block *ccb)
   bind_tir_usb_transport();
   if(!ltr_int_tir_init_prefs()){
     ltr_int_log_message("Problem initializing TrackIr prefs!\n");
+    cleanup_tir_usb_backend();
     return -1;
   }
 
@@ -98,6 +114,7 @@ int ltr_int_tracker_init(struct camera_control_block *ccb)
     ltr_int_prepare_for_processing(ccb->pixel_width, ccb->pixel_height);
     return 0;
   }else{
+    cleanup_tir_usb_backend();
     return -1;
   }
 }
@@ -177,6 +194,7 @@ int ltr_int_tir_found(bool *have_firmware, bool *have_permissions)
   bind_tir_usb_transport();
   if(!ltr_usb_transport_init(&tir_usb_transport)){
     ltr_int_log_message("Failed to initialize usb!\n");
+    cleanup_tir_usb_backend();
     return 0;
   }
   dev_found device = ltr_usb_transport_find_tir(&tir_usb_transport, NULL);
@@ -204,4 +222,3 @@ int ltr_int_tir_found(bool *have_firmware, bool *have_permissions)
   libhandle = NULL;
   return device;
 }
-
