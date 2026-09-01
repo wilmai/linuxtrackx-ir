@@ -165,6 +165,8 @@ target_link_libraries(ltr
 add_library(tir SHARED
     tir_hw.c
     tir_img.c
+    tir_protocol.c
+    tir_transport.c
     tir_driver.c
     runloop.c
 )
@@ -441,12 +443,28 @@ endif()
 
 option(LTR_BUILD_TESTS "Build unit tests" ON)
 if(LTR_BUILD_TESTS)
+    enable_testing()
+
     add_executable(test_align_translation
         tests/align_translation_unit.c
         math_utils.c
     )
     target_include_directories(test_align_translation PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(test_align_translation PRIVATE m)
+
+    add_executable(test_tir_protocol
+        tests/tir_protocol_test.c
+        tir_protocol.c
+    )
+    target_include_directories(test_tir_protocol PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME tir_protocol COMMAND test_tir_protocol)
+
+    add_executable(test_tir_transport
+        tests/tir_transport_test.c
+        tir_transport.c
+    )
+    target_include_directories(test_tir_transport PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME tir_transport COMMAND test_tir_transport)
 endif()
 
 # ============================================================================

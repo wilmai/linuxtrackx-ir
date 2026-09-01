@@ -11,6 +11,7 @@
 #include "runloop.h"
 #include "image_process.h"
 #include "usb_ifc.h"
+#include "tir_transport.h"
 #include "dyn_load.h"
 #include "utils.h"
 #include "tir_driver_prefs.h"
@@ -34,6 +35,29 @@ static lib_fun_def_t functions[] = {
   {NULL, NULL}
 };
 static void *libhandle = NULL;
+static ltr_usb_legacy_api legacy_usb_api;
+static ltr_usb_transport tir_usb_transport;
+
+static void bind_tir_usb_transport(void)
+{
+  legacy_usb_api.init = ltr_int_init_usb;
+  legacy_usb_api.find_tir = ltr_int_find_tir;
+  legacy_usb_api.reset = ltr_int_reset_device;
+  legacy_usb_api.prepare = ltr_int_prepare_device;
+  legacy_usb_api.send = ltr_int_send_data;
+  legacy_usb_api.receive = ltr_int_receive_data;
+  legacy_usb_api.control = NULL;
+  legacy_usb_api.finish = ltr_int_finish_usb;
+  ltr_usb_transport_from_legacy(&tir_usb_transport, &legacy_usb_api);
+  ltr_int_set_tir_usb_transport(&tir_usb_transport);
+}
+
+static void unbind_tir_usb_transport(void)
+{
+  ltr_int_set_tir_usb_transport(NULL);
+  memset(&tir_usb_transport, 0, sizeof(tir_usb_transport));
+  memset(&legacy_usb_api, 0, sizeof(legacy_usb_api));
+}
 
 void flag_pref_changed(void *flag_ptr)
 {
@@ -59,6 +83,7 @@ int ltr_int_tracker_init(struct camera_control_block *ccb)
     ltr_int_log_message("Problem loading library %s!\n", libname);
     return -1;
   }
+  bind_tir_usb_transport();
   if(!ltr_int_tir_init_prefs()){
     ltr_int_log_message("Problem initializing TrackIr prefs!\n");
     return -1;
@@ -130,6 +155,7 @@ int ltr_int_tracker_close()
   int res = ltr_int_close_tir() ? 0 : -1;;
   ltr_int_cleanup_after_processing();
   ltr_int_unload_library(libhandle, functions);
+  unbind_tir_usb_transport();
   libhandle = NULL;
   return res;
 }
@@ -148,11 +174,12 @@ int ltr_int_tir_found(bool *have_firmware, bool *have_permissions)
     ltr_int_log_message("Failed to load the library '%s'! \n", libname);
     return 0;
   }
-  if(!ltr_int_init_usb()){
+  bind_tir_usb_transport();
+  if(!ltr_usb_transport_init(&tir_usb_transport)){
     ltr_int_log_message("Failed to initialize usb!\n");
     return 0;
   }
-  dev_found device = ltr_int_find_tir();
+  dev_found device = ltr_usb_transport_find_tir(&tir_usb_transport, NULL);
   printf("Found device %X\n", device);
   if(device & NOT_PERMITTED){
     device ^= NOT_PERMITTED;
@@ -171,8 +198,9 @@ int ltr_int_tir_found(bool *have_firmware, bool *have_permissions)
       *have_firmware = false;
     }
   }
-  ltr_int_finish_usb(-1);
+  ltr_usb_transport_finish(&tir_usb_transport, (unsigned int)-1);
   ltr_int_unload_library(libhandle, functions);
+  unbind_tir_usb_transport();
   libhandle = NULL;
   return device;
 }
